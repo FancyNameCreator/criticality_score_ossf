@@ -29,7 +29,7 @@ import github
 import gitlab
 import requests
 
-from .defaults import *  # pylint: disable=wildcard-import
+from defaults import *  # pylint: disable=wildcard-import
 
 logger = logging.getLogger()
 
@@ -135,6 +135,10 @@ class Repository:
         if not match:
             return 0
         return int(match.group(1).replace(b',', b''))
+
+    @property
+    def dependents_count2(self):
+        raise NotImplementedError
 
 
 class GitHubRepository(Repository):
