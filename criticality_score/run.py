@@ -30,6 +30,7 @@ import gitlab
 import requests
 
 from defaults import *  # pylint: disable=wildcard-import
+from internal.dbhelper.db_helper import DependencyPagerankFetcher, PageRankNotAvailableException
 
 logger = logging.getLogger()
 
@@ -41,6 +42,8 @@ PARAMS = [
     'commit_frequency', 'recent_releases_count', 'updated_issues_count',
     'closed_issues_count', 'comment_frequency', 'dependents_count'
 ]
+
+pagerank_fetcher = DependencyPagerankFetcher()
 
 
 class Repository:
@@ -117,8 +120,7 @@ class Repository:
 
         return requests.get(url, headers=headers)
 
-    @property
-    def dependents_count(self):
+    def _dependents_count_commit_based(self):
         # TODO: Take package manager dependency trees into account. If we decide
         # to replace this, then find a solution for C/C++ as well.
         match = None
@@ -136,9 +138,16 @@ class Repository:
             return 0
         return int(match.group(1).replace(b',', b''))
 
+    def _dependents_count_pagerank_based(self):
+        return pagerank_fetcher.try_get_dependency_pagerank(self._repo)
+
     @property
-    def dependents_count2(self):
-        raise NotImplementedError
+    def dependents_count(self):
+        try:
+            result = self._dependents_count_pagerank_based()
+        except PageRankNotAvailableException as ex:
+            result = self._dependents_count_commit_based()
+        return int(result)
 
 
 class GitHubRepository(Repository):
