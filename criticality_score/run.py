@@ -30,7 +30,7 @@ import gitlab
 import requests
 
 from defaults import *  # pylint: disable=wildcard-import
-from internal.dbhelper.db_helper import DependencyPagerankFetcher, PageRankNotAvailableException
+from db_helper import DependencyPagerankFetcher, PageRankNotAvailableException
 
 logger = logging.getLogger()
 
@@ -145,7 +145,8 @@ class Repository:
     def dependents_count(self):
         try:
             result = self._dependents_count_pagerank_based()
-        except PageRankNotAvailableException as ex:
+        except (PageRankNotAvailableException, Exception) as epr:
+            print("PageRank dependency calculation not available for this package, defaulting to 'hack-ish' one")
             result = self._dependents_count_commit_based()
         return int(result)
 

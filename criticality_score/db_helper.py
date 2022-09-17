@@ -1,5 +1,4 @@
 from neo4j import GraphDatabase
-from criticality_score.run import Repository, GitHubRepository, GitLabRepository
 
 CONVERT_LANGUAGE_TO_PLATFORM = {
         "C": "",
@@ -15,6 +14,7 @@ CONVERT_LANGUAGE_TO_PLATFORM = {
         "Typescript": "NPM"
     }
 
+
 class DependencyPagerankFetcher:
     def __init__(self):
         self._uri = "neo4j://localhost:7687"
@@ -28,13 +28,7 @@ class DependencyPagerankFetcher:
 
         return result.value()[0]
 
-    # def get_dependency_pagerank(self, repo: Repository) -> float:
-    #     # TODO: Do translation of language to platform
-    #
-    #     with self._driver.session() as session:
-    #         return session.execute_read(self._fetch_pagerank, repo.name, repo.language)
-
-    def try_get_dependency_pagerank(self, repo: Repository) -> float:
+    def try_get_dependency_pagerank(self, repo) -> float:
         if repo.language in CONVERT_LANGUAGE_TO_PLATFORM.keys():
             platform = CONVERT_LANGUAGE_TO_PLATFORM[repo.language]
         else:
@@ -47,7 +41,7 @@ class DependencyPagerankFetcher:
             else:
                 return rank
 
-    def is_dependency_pagerank_available(self, repo: Repository) -> bool:
+    def is_dependency_pagerank_available(self, repo) -> bool:
         if repo.language in CONVERT_LANGUAGE_TO_PLATFORM.keys():
             platform = CONVERT_LANGUAGE_TO_PLATFORM[repo.language]
         else:
@@ -60,8 +54,3 @@ class DependencyPagerankFetcher:
 
 class PageRankNotAvailableException(Exception):
     pass
-
-
-if __name__ == '__main__':
-    fetcher = DependencyPagerankFetcher()
-    #print(fetcher.try_get_dependency_pagerank("HardMock", "NuGet"))
