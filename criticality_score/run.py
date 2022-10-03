@@ -46,8 +46,34 @@ PARAMS = [
 pagerank_fetcher = DependencyPagerankFetcher()
 
 
+class Package:
+    def __init__(self, package_manager, package_name):
+        self.package_manager = package_manager
+        self.package_name = package_name
+        self.pagerank_db_helper = DependencyPagerankFetcher()
+
+    def get_package_pagerank(self):
+        try:
+            result = self.pagerank_db_helper.try_get_dependency_pagerank_for_package(self.package_manager,
+                                                                                     self.package_name)
+            return float(result)
+        except (PageRankNotAvailableException, Exception) as epr:
+            return None
+
+    @staticmethod
+    def is_valid_package_name(name):
+        # TODO: Do implementation with pagerank_db_helper
+        return True
+
+    @staticmethod
+    def is_valid_package_manager(package_manager):
+        # TODO: Do implementation with pagerank_db_helper
+        return True
+
+
 class Repository:
     """General source repository."""
+
     def __init__(self, repo):
         self._repo = repo
         self._last_commit = None
@@ -133,7 +159,7 @@ class Repository:
             if result.status_code == 200:
                 match = DEPENDENTS_REGEX.match(result.content)
                 break
-            time.sleep(2**i)
+            time.sleep(2 ** i)
         if not match:
             return 0
         return int(match.group(1).replace(b',', b''))
@@ -153,6 +179,7 @@ class Repository:
 
 class GitHubRepository(Repository):
     """Source repository hosted on GitHub."""
+
     # General metadata attributes.
     @property
     def name(self):
@@ -206,7 +233,7 @@ class GitHubRepository(Repository):
                         commits[-1]['commit']['committer']['date'])
                     return datetime.datetime.strptime(last_commit_time_string,
                                                       "%Y-%m-%dT%H:%M:%SZ")
-            time.sleep(2**i)
+            time.sleep(2 ** i)
 
         return None
 
@@ -278,7 +305,7 @@ class GitHubRepository(Repository):
         total = 0
         for release in self._repo.get_releases():
             if (datetime.datetime.utcnow() -
-                    release.created_at).days > RELEASE_LOOKBACK_DAYS:
+                release.created_at).days > RELEASE_LOOKBACK_DAYS:
                 continue
             total += 1
         if not total:
@@ -328,6 +355,7 @@ class GitHubRepository(Repository):
 
 class GitLabRepository(Repository):
     """Source repository hosted on GitLab."""
+
     @staticmethod
     def _date_from_string(date_string):
         return datetime.datetime.strptime(date_string,
@@ -370,7 +398,7 @@ class GitLabRepository(Repository):
     def updated_since(self):
         difference = datetime.datetime.now(
             datetime.timezone.utc) - self._date_from_string(
-                self.last_commit.created_at)
+            self.last_commit.created_at)
         return round(difference.days / 30)
 
     @property
@@ -398,7 +426,7 @@ class GitLabRepository(Repository):
         for release in self._repo.releases.list():
             release_time = self._date_from_string(release.released_at)
             if (datetime.datetime.now(datetime.timezone.utc) -
-                    release_time).days > RELEASE_LOOKBACK_DAYS:
+                release_time).days > RELEASE_LOOKBACK_DAYS:
                 break
             count += 1
         count = 0
@@ -406,7 +434,7 @@ class GitLabRepository(Repository):
             for tag in self._repo.tags.list():
                 tag_time = self._date_from_string(tag.commit['created_at'])
                 if (datetime.datetime.now(datetime.timezone.utc) -
-                        tag_time).days > RELEASE_LOOKBACK_DAYS:
+                    tag_time).days > RELEASE_LOOKBACK_DAYS:
                     break
                 count += 1
         return count
@@ -477,7 +505,7 @@ def get_repository_stats(repo):
     return result_dict
 
 
-def get_repository_score(repo_stats, additional_params=None):
+def get_repository_score(repo_stats, package_pagerank=None, additional_params=None):
     """Return one repository's criticality score based on repo stats."""
     # Validate and compute additional params first.
     if additional_params is None:
@@ -503,29 +531,35 @@ def get_repository_score(repo_stats, additional_params=None):
                     COMMENT_FREQUENCY_WEIGHT + DEPENDENTS_COUNT_WEIGHT +
                     additional_params_total_weight)
 
-    criticality_score = round(
-        ((get_param_score(float(repo_stats['created_since']),
-            CREATED_SINCE_THRESHOLD, CREATED_SINCE_WEIGHT)) +
-         (get_param_score(float(repo_stats['updated_since']),
-             UPDATED_SINCE_THRESHOLD, UPDATED_SINCE_WEIGHT)) +
-         (get_param_score(float(repo_stats['contributor_count']),
-             CONTRIBUTOR_COUNT_THRESHOLD, CONTRIBUTOR_COUNT_WEIGHT)) +
-         (get_param_score(float(repo_stats['org_count']),
-             ORG_COUNT_THRESHOLD, ORG_COUNT_WEIGHT)) +
-         (get_param_score(float(repo_stats['commit_frequency']),
-             COMMIT_FREQUENCY_THRESHOLD, COMMIT_FREQUENCY_WEIGHT)) +
-         (get_param_score(float(repo_stats['recent_releases_count']),
-             RECENT_RELEASES_THRESHOLD, RECENT_RELEASES_WEIGHT)) +
-         (get_param_score(float(repo_stats['closed_issues_count']),
-             CLOSED_ISSUES_THRESHOLD, CLOSED_ISSUES_WEIGHT)) +
-         (get_param_score(float(repo_stats['updated_issues_count']),
-             UPDATED_ISSUES_THRESHOLD, UPDATED_ISSUES_WEIGHT)) +
-         (get_param_score(float(repo_stats['comment_frequency']),
-             COMMENT_FREQUENCY_THRESHOLD, COMMENT_FREQUENCY_WEIGHT)) +
-         (get_param_score(float(repo_stats['dependents_count']),
-             DEPENDENTS_COUNT_THRESHOLD, DEPENDENTS_COUNT_WEIGHT)) +
-         additional_params_score) /
-        total_weight, 5)
+    total_score_no_dependency = ((get_param_score(float(repo_stats['created_since']),
+                                                  CREATED_SINCE_THRESHOLD, CREATED_SINCE_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['updated_since']),
+                                                  UPDATED_SINCE_THRESHOLD, UPDATED_SINCE_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['contributor_count']),
+                                                  CONTRIBUTOR_COUNT_THRESHOLD, CONTRIBUTOR_COUNT_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['org_count']),
+                                                  ORG_COUNT_THRESHOLD, ORG_COUNT_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['commit_frequency']),
+                                                  COMMIT_FREQUENCY_THRESHOLD, COMMIT_FREQUENCY_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['recent_releases_count']),
+                                                  RECENT_RELEASES_THRESHOLD, RECENT_RELEASES_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['closed_issues_count']),
+                                                  CLOSED_ISSUES_THRESHOLD, CLOSED_ISSUES_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['updated_issues_count']),
+                                                  UPDATED_ISSUES_THRESHOLD, UPDATED_ISSUES_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['comment_frequency']),
+                                                  COMMENT_FREQUENCY_THRESHOLD, COMMENT_FREQUENCY_WEIGHT)) +
+                                 additional_params_score)
+
+    if package_pagerank is not None:
+        criticality_score = round((total_score_no_dependency + (
+            get_param_score(float(package_pagerank), DEPENDENTS_COUNT_THRESHOLD,
+                            DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+    else:
+        criticality_score = round(
+            (total_score_no_dependency + (
+                get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
+                                DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
 
     # Make sure score between 0 (least-critical) and 1 (most-critical).
     criticality_score = max(min(criticality_score, 1), 0)
@@ -533,14 +567,24 @@ def get_repository_score(repo_stats, additional_params=None):
     return criticality_score
 
 
-def get_repository_score_from_raw_stats(repo_url, params=None):
+def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
     """Get repository's criticality_score based on raw signal data."""
     repo = get_repository(repo_url)
     if repo is None:
         logger.error(f'Repo is not found: {repo_url}')
         return
+
     repo_stats = get_repository_stats(repo)
-    repo_stats["criticality_score"] = get_repository_score(repo_stats, params)
+
+    if package is not None:
+        package_pagerank = package.get_package_pagerank()
+        if package_pagerank:
+            repo_stats["criticality_score"] = get_repository_score(repo_stats, package_pagerank, params)
+        else:
+            logger.warning("Pagerank not available, doing default calculation")
+            repo_stats["criticality_score"] = get_repository_score(repo_stats, params)
+    else:
+        repo_stats["criticality_score"] = get_repository_score(repo_stats, params)
 
     return repo_stats
 
@@ -563,7 +607,7 @@ def get_repository_score_from_local_csv(file_path, params=None):
             logger.debug(row)
 
             calc_params = []
-            for key,weight,max_threshold in additional_params:
+            for key, weight, max_threshold in additional_params:
                 calc_params.append(f"{row[key]}:{weight}:{max_threshold}")
 
             row["criticality_score"] = get_repository_score(row, calc_params)
@@ -667,7 +711,7 @@ def initialize_logging_handlers():
 
 def override_params(override_params):
     for override_param in override_params:
-        temp = override_param.split(':',1)
+        temp = override_param.split(':', 1)
         param_name = temp[0]
         try:
             weight, threshold = [
@@ -721,17 +765,27 @@ def override_params(override_params):
                 'Wrong format argument, unknown parameter: ' + param_name)
 
 
+def is_package_valid(package):
+    if not Package.is_valid_package_name(package.package_name):
+        logger.warning("Invalid package name, doing default calculation")
+        return False
+    if not Package.is_valid_package_manager(package.package_manager):
+        logger.warning("Invalid package manager, doing default calculation")
+        return False
+    return True
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Gives criticality score for an open source project')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--repo",
-                        type=str,
-                        help="repository url")
+                       type=str,
+                       help="repository url")
     group.add_argument("--local-file",
-            type=str,
-            dest="l_file",
-            help="path of a local csv file with repo stats")
+                       type=str,
+                       dest="l_file",
+                       help="path of a local csv file with repo stats")
     parser.add_argument(
         "--format",
         type=str,
@@ -750,6 +804,13 @@ def main():
         default=[],
         help='Overriding parameters in form <name>:<weight>:<max_threshold>',
         required=False)
+    parser.add_argument(
+        '--pkg_and_mng',
+        nargs=2,
+        default=[],
+        help='Adding this flag calculates dependency sub-score, using dependency tree from package manager for given package name.',
+        metavar=('PACKAGE_NAME', 'PACKAGE_MANAGER_OF_PACKAGE'),
+        required=False)
 
     initialize_logging_handlers()
     args = parser.parse_args()
@@ -758,8 +819,20 @@ def main():
 
     output = None
     if args.repo:
-        output = get_repository_score_from_raw_stats(args.repo, args.params)
+        is_pkg_valid = False
+        if args.pkg_and_mng:
+            package = Package(
+                package_name=args.pkg_and_pkg_mng[0],
+                package_manager=args.pkg_and_pkg_mng[1]
+            )
+            is_pkg_valid = is_package_valid(package)
+
+        if args.pkg_and_mng and is_pkg_valid:
+            output = get_repository_score_from_raw_stats(args.repo, package, args.params)
+        else:
+            output = get_repository_score_from_raw_stats(args.repo, args.params)
     elif args.l_file:
+        # TODO: Add package handling also here
         if args.format != "csv":
             logger.error(f"Only support for the format of csv, now is {args.format}")
             sys.exit(1)

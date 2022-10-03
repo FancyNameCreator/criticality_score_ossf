@@ -18,11 +18,12 @@ CONVERT_LANGUAGE_TO_PLATFORM = {
 class DependencyPagerankFetcher:
     def __init__(self):
         self._uri = "neo4j://localhost:7687"
-        self._driver = GraphDatabase.driver(self._uri, auth=("neo4j", "6P87!xHs9f!CckgS"))
+        self._driver = GraphDatabase.driver(self._uri, auth=("neo4j", "password"))
 
-    def _fetch_pagerank(self, tx, name, platform):
-        query = f"""MATCH (n:{platform})
-        WHERE n.Name = "{name}"
+    @staticmethod
+    def _fetch_pagerank(tx, package_name, package_manager):
+        query = f"""MATCH (n:{package_manager})
+        WHERE n.Name = "{package_name}"
         RETURN n.pagerank;"""
         result = tx.run(query)
 
@@ -36,6 +37,14 @@ class DependencyPagerankFetcher:
 
         with self._driver.session() as session:
             rank = session.execute_read(self._fetch_pagerank, repo.name, platform)
+            if rank is None:
+                raise PageRankNotAvailableException("Pagerank not available for this package")
+            else:
+                return rank
+
+    def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
+        with self._driver.session() as session:
+            rank = session.execute_read(self._fetch_pagerank, package_name, package_manager)
             if rank is None:
                 raise PageRankNotAvailableException("Pagerank not available for this package")
             else:
