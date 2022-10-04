@@ -9,8 +9,23 @@ class DependencyPagerankFetcher:
     @staticmethod
     def _fetch_pagerank(tx, package_name, package_manager):
         query = f"""MATCH (n:{package_manager})
-        WHERE n.Name = "{package_name}"
-        RETURN n.pagerank;"""
+        WHERE n.PKG_NAME = "{package_name}"
+        RETURN n.PAGE_RANK;"""
+        result = tx.run(query)
+
+        return result.value()[0]
+
+    @staticmethod
+    def _fetch_all_packages(tx, package_manager):
+        query = f"""MATCH (n:{package_manager})
+            RETURN n.PKG_NAME;"""
+        result = tx.run(query)
+
+        return result.value()[0]
+
+    @staticmethod
+    def _fetch_all_package_managers(tx):
+        query = f"""MATCH (n) RETURN distinct labels(n);"""
         result = tx.run(query)
 
         return result.value()[0]
@@ -22,6 +37,16 @@ class DependencyPagerankFetcher:
                 raise PageRankNotAvailableException("Pagerank not available for this package")
             else:
                 return rank
+
+    @staticmethod
+    def get_all_packages():
+        # TODO: Fix me
+        pass
+
+    @staticmethod
+    def get_all_package_managers():
+        # TODO: Fix me
+        pass
 
 
 class PageRankNotAvailableException(Exception):

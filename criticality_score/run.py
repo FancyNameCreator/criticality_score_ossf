@@ -54,8 +54,10 @@ class Package:
 
     def get_package_pagerank(self):
         try:
-            result = self.pagerank_db_helper.try_get_dependency_pagerank_for_package(self.package_manager,
-                                                                                     self.package_name)
+            result = self.pagerank_db_helper.try_get_dependency_pagerank_for_package(
+                package_manager=self.package_manager,
+                package_name=self.package_name
+            )
             return float(result)
         except (PageRankNotAvailableException, Exception) as epr:
             return None
@@ -571,9 +573,9 @@ def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
             repo_stats["criticality_score"] = get_repository_score(repo_stats, package_pagerank, params)
         else:
             logger.warning("Pagerank not available, doing default calculation")
-            repo_stats["criticality_score"] = get_repository_score(repo_stats, params)
+            repo_stats["criticality_score"] = get_repository_score(repo_stats, additional_params=params)
     else:
-        repo_stats["criticality_score"] = get_repository_score(repo_stats, params)
+        repo_stats["criticality_score"] = get_repository_score(repo_stats, additional_params=params)
 
     return repo_stats
 
@@ -811,8 +813,8 @@ def main():
         is_pkg_valid = False
         if args.pkg_and_mng:
             package = Package(
-                package_name=args.pkg_and_pkg_mng[0],
-                package_manager=args.pkg_and_pkg_mng[1]
+                package_name=args.pkg_and_mng[0],
+                package_manager=args.pkg_and_mng[1]
             )
             is_pkg_valid = is_package_valid(package)
 
