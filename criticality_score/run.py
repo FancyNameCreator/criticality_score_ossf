@@ -146,7 +146,8 @@ class Repository:
 
         return requests.get(url, headers=headers)
 
-    def _dependents_count_commit_based(self):
+    @property
+    def dependents_count(self):
         # TODO: Take package manager dependency trees into account. If we decide
         # to replace this, then find a solution for C/C++ as well.
         match = None
@@ -163,18 +164,6 @@ class Repository:
         if not match:
             return 0
         return int(match.group(1).replace(b',', b''))
-
-    def _dependents_count_pagerank_based(self):
-        return pagerank_fetcher.try_get_dependency_pagerank(self._repo)
-
-    @property
-    def dependents_count(self):
-        try:
-            result = self._dependents_count_pagerank_based()
-        except (PageRankNotAvailableException, Exception) as epr:
-            print("PageRank dependency calculation not available for this package, defaulting to 'hack-ish' one")
-            result = self._dependents_count_commit_based()
-        return int(result)
 
 
 class GitHubRepository(Repository):
