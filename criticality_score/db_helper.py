@@ -1,7 +1,28 @@
+import os
+from abc import ABC, abstractmethod
+import pandas as pd
 from neo4j import GraphDatabase
 
 
-class DependencyPagerankFetcher:
+# TODO: Investigate how to get that in configuration
+BASE_PATH = "C:\\DATA\\STUDIA\\Master\\P3\\ASE\\critical-projects-itu\\data\\processing\\"
+
+
+class DependencyPagerankFetcher(ABC):
+    @abstractmethod
+    def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
+        pass
+
+    @abstractmethod
+    def get_all_packages(self, package_manager):
+        pass
+
+    @abstractmethod
+    def get_all_package_managers(self):
+        pass
+
+
+class Neo4jDependencyPagerankFetcher(DependencyPagerankFetcher):
     def __init__(self):
         self._uri = "neo4j://localhost:7687"
         self._driver = GraphDatabase.driver(self._uri, auth=("neo4j", "password"))
@@ -38,15 +59,54 @@ class DependencyPagerankFetcher:
             else:
                 return rank
 
-    @staticmethod
-    def get_all_packages():
+    def get_all_packages(self, package_manager):
         # TODO: Fix me
         pass
 
-    @staticmethod
-    def get_all_package_managers():
+    def get_all_package_managers(self):
         # TODO: Fix me
         pass
+
+
+class CsvDependencyPagerankFetcher(DependencyPagerankFetcher):
+    PKG_MANAGERS_LIST = [
+        "alire",
+        # "cargo",
+        # "chromebrew",
+        # "clojars",
+        "conan",
+        # "fpm",
+        # "homebrew",
+        # "luarocks",
+        # "nimble",
+        # "npm",
+        # "ports",
+        # "rubygems",
+        # "vcpkg"
+    ]
+
+    def __init__(self):
+        self._base_directory = BASE_PATH
+
+    def _load_dataframe(self, package_manager):
+        path = os.path.join(self._base_directory, package_manager.lower(), f"nodes_{package_manager.lower()}.csv")
+
+        return pd.read_csv(
+            filepath_or_buffer=path,
+            usecols=["PKG_NAME", "PAGE_RANK"],
+        )
+
+    def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
+        df = self._load_dataframe(package_manager)
+        df_package_name = df.loc[df['PKG_NAME'] == package_name]
+
+        return df_package_name.iloc[0]["PAGE_RANK"]
+
+    def get_all_packages(self, package_manager):
+        return self._load_dataframe(package_manager)['PKG_NAME'].tolist()
+
+    def get_all_package_managers(self):
+        return self.PKG_MANAGERS_LIST
 
 
 class PageRankNotAvailableException(Exception):

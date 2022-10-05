@@ -30,7 +30,8 @@ import gitlab
 import requests
 
 from defaults import *  # pylint: disable=wildcard-import
-from db_helper import DependencyPagerankFetcher, PageRankNotAvailableException
+from db_helper import DependencyPagerankFetcher, PageRankNotAvailableException, Neo4jDependencyPagerankFetcher, \
+    CsvDependencyPagerankFetcher
 
 logger = logging.getLogger()
 
@@ -43,18 +44,15 @@ PARAMS = [
     'closed_issues_count', 'comment_frequency', 'dependents_count'
 ]
 
-pagerank_fetcher = DependencyPagerankFetcher()
-
-
 class Package:
     def __init__(self, package_manager, package_name):
         self.package_manager = package_manager
         self.package_name = package_name
-        self.pagerank_db_helper = DependencyPagerankFetcher()
+        self.pagerank_fetcher = CsvDependencyPagerankFetcher()
 
     def get_package_pagerank(self):
         try:
-            result = self.pagerank_db_helper.try_get_dependency_pagerank_for_package(
+            result = self.pagerank_fetcher.try_get_dependency_pagerank_for_package(
                 package_manager=self.package_manager,
                 package_name=self.package_name
             )
@@ -62,15 +60,11 @@ class Package:
         except (PageRankNotAvailableException, Exception) as epr:
             return None
 
-    @staticmethod
-    def is_valid_package_name(name):
-        # TODO: Do implementation with pagerank_db_helper
-        return True
+    def is_valid_package_name(self):
+        return self.package_name.lower() in self.pagerank_fetcher.get_all_packages(self.package_manager)
 
-    @staticmethod
-    def is_valid_package_manager(package_manager):
-        # TODO: Do implementation with pagerank_db_helper
-        return True
+    def is_valid_package_manager(self):
+        return self.package_manager.lower() in self.pagerank_fetcher.get_all_package_managers()
 
 
 class Repository:
@@ -757,16 +751,18 @@ def override_params(override_params):
 
 
 def is_package_valid(package):
-    if not Package.is_valid_package_name(package.package_name):
+    if not package.is_valid_package_name():
         logger.warning("Invalid package name, doing default calculation")
         return False
-    if not Package.is_valid_package_manager(package.package_manager):
+    if not package.is_valid_package_manager():
         logger.warning("Invalid package manager, doing default calculation")
         return False
     return True
 
 
 def main():
+    # TODO: Fix package.lower() which is all over the place
+
     parser = argparse.ArgumentParser(
         description='Gives criticality score for an open source project')
     group = parser.add_mutually_exclusive_group(required=True)
