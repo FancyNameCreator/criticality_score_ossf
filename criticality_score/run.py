@@ -68,10 +68,7 @@ class Package:
         return self.package_manager.lower() in self.pagerank_fetcher.get_all_package_managers()
 
     def is_package_valid(self):
-        if not self._is_valid_package_name() or not self._is_valid_package_manager():
-            return False
-        else:
-            return True
+        return self._is_valid_package_name() and self._is_valid_package_manager()
 
 
 class Repository:
