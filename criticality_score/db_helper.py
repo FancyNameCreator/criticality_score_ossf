@@ -90,11 +90,9 @@ class CsvDependencyPagerankFetcher(DependencyPagerankFetcher):
 
     def _load_dataframe(self, package_manager):
         path = os.path.join(self._base_directory, package_manager.lower(), f"nodes_{package_manager.lower()}.csv")
+        df = pd.read_csv(filepath_or_buffer=path, usecols=["PKG_NAME", "PAGE_RANK"])
 
-        return pd.read_csv(
-            filepath_or_buffer=path,
-            usecols=["PKG_NAME", "PAGE_RANK"],
-        )
+        return df.applymap(lambda s: s.lower() if type(s) == str else s)
 
     def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
         df = self._load_dataframe(package_manager)

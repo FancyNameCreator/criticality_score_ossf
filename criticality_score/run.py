@@ -44,6 +44,7 @@ PARAMS = [
     'closed_issues_count', 'comment_frequency', 'dependents_count'
 ]
 
+
 class Package:
     def __init__(self, package_manager, package_name):
         self.package_manager = package_manager
@@ -60,11 +61,18 @@ class Package:
         except (PageRankNotAvailableException, Exception) as epr:
             return None
 
-    def is_valid_package_name(self):
+    def _is_valid_package_name(self):
         return self.package_name.lower() in self.pagerank_fetcher.get_all_packages(self.package_manager)
 
-    def is_valid_package_manager(self):
+    def _is_valid_package_manager(self):
         return self.package_manager.lower() in self.pagerank_fetcher.get_all_package_managers()
+
+    def is_package_valid(self):
+        if not self._is_valid_package_name() or not self._is_valid_package_manager():
+            logger.warning("Invalid package name or package manager, doing default calculation")
+            return False
+        else:
+            return True
 
 
 class Repository:
@@ -455,7 +463,7 @@ class GitLabRepository(Repository):
 def get_param_score(param, max_value, weight=1):
     """Return paramater score given its current value, max value and
     parameter weight."""
-    return (math.log(1 + param) / math.log(1 + max(param, max_value))) * weight
+    return 0 if weight == 0 else (math.log(1 + param) / math.log(1 + max(param, max_value))) * weight
 
 
 def get_repository_stats(repo):
@@ -574,7 +582,7 @@ def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
     return repo_stats
 
 
-def get_repository_score_from_local_csv(file_path, params=None):
+def get_repository_score_from_local_csv(file_path, package=None, params=None):
     """Get repository's criticality_score based on a local csv file."""
     if params is None:
         additional_params = []
@@ -694,85 +702,17 @@ def initialize_logging_handlers():
     logging.getLogger('').addHandler(console)
 
 
-def override_params(override_params):
-    for override_param in override_params:
-        temp = override_param.split(':', 1)
-        param_name = temp[0]
-        try:
-            weight, threshold = [
-                float(i) for i in temp[1].split(':')
-            ]
-        except ValueError:
-            logger.error('Override parameter in bad format: ' + override_param)
-            sys.exit(1)
-        if param_name == 'created_since':
-            global CREATED_SINCE_WEIGHT, CREATED_SINCE_THRESHOLD
-            CREATED_SINCE_WEIGHT = weight
-            CREATED_SINCE_THRESHOLD = threshold
-        elif param_name == 'updated_since':
-            global UPDATED_SINCE_WEIGHT, UPDATED_SINCE_THRESHOLD
-            UPDATED_SINCE_WEIGHT = weight
-            UPDATED_SINCE_THRESHOLD = threshold
-        elif param_name == 'contributor_count':
-            global CONTRIBUTOR_COUNT_WEIGHT, CONTRIBUTOR_COUNT_THRESHOLD
-            CONTRIBUTOR_COUNT_WEIGHT = weight
-            CONTRIBUTOR_COUNT_THRESHOLD = threshold
-        elif param_name == 'org_count':
-            global ORG_COUNT_WEIGHT, ORG_COUNT_THRESHOLD
-            ORG_COUNT_WEIGHT = weight
-            ORG_COUNT_THRESHOLD = threshold
-        elif param_name == 'commit_frequency':
-            global COMMIT_FREQUENCY_WEIGHT, COMMIT_FREQUENCY_THRESHOLD
-            COMMIT_FREQUENCY_WEIGHT = weight
-            COMMIT_FREQUENCY_THRESHOLD = threshold
-        elif param_name == 'recent_releases_count':
-            global RECENT_RELEASES_WEIGHT, RECENT_RELEASES_THRESHOLD
-            RECENT_RELEASES_WEIGHT = weight
-            RECENT_RELEASES_THRESHOLD = threshold
-        elif param_name == 'updated_issues_count':
-            global UPDATED_ISSUES_WEIGHT, UPDATED_ISSUES_THRESHOLD
-            UPDATED_ISSUES_WEIGHT = weight
-            UPDATED_ISSUES_THRESHOLD = threshold
-        elif param_name == 'closed_issues_count':
-            global CLOSED_ISSUES_WEIGHT, CLOSED_ISSUES_THRESHOLD
-            CLOSED_ISSUES_WEIGHT = weight
-            CLOSED_ISSUES_THRESHOLD = threshold
-        elif param_name == 'comment_frequency':
-            global COMMENT_FREQUENCY_WEIGHT, COMMENT_FREQUENCY_THRESHOLD
-            COMMENT_FREQUENCY_WEIGHT = weight
-            COMMENT_FREQUENCY_THRESHOLD = threshold
-        elif param_name == 'dependents_count':
-            global DEPENDENTS_COUNT_WEIGHT, DEPENDENTS_COUNT_THRESHOLD
-            DEPENDENTS_COUNT_WEIGHT = weight
-            DEPENDENTS_COUNT_THRESHOLD = threshold
-        else:
-            raise Exception(
-                'Wrong format argument, unknown parameter: ' + param_name)
-
-
-def is_package_valid(package):
-    if not package.is_valid_package_name():
-        logger.warning("Invalid package name, doing default calculation")
-        return False
-    if not package.is_valid_package_manager():
-        logger.warning("Invalid package manager, doing default calculation")
-        return False
-    return True
-
-
-def main():
-    # TODO: Fix package.lower() which is all over the place
-
+def parse_cmd_params():
     parser = argparse.ArgumentParser(
         description='Gives criticality score for an open source project')
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--repo",
-                       type=str,
-                       help="repository url")
-    group.add_argument("--local-file",
-                       type=str,
-                       dest="l_file",
-                       help="path of a local csv file with repo stats")
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument("--repo",
+                             type=str,
+                             help="repository url")
+    input_group.add_argument("--local-file",
+                             type=str,
+                             dest="l_file",
+                             help="path of a local csv file with repo stats")
     parser.add_argument(
         "--format",
         type=str,
@@ -792,6 +732,12 @@ def main():
         help='Overriding parameters in form <name>:<weight>:<max_threshold>',
         required=False)
     parser.add_argument(
+        '--use_only',
+        nargs='+',
+        choices=PARAMS,
+        help='Allows to only use certain signals for criticality calculation',
+        required=False)
+    parser.add_argument(
         '--pkg_and_mng',
         nargs=2,
         default=[],
@@ -799,35 +745,81 @@ def main():
         metavar=('PACKAGE_NAME', 'PACKAGE_MANAGER_OF_PACKAGE'),
         required=False)
 
-    initialize_logging_handlers()
-    args = parser.parse_args()
-    if args.overrides:
-        override_params(args.overrides)
+    return parser.parse_args()
 
-    output = None
-    if args.repo:
-        is_pkg_valid = False
-        if args.pkg_and_mng:
-            package = Package(
-                package_name=args.pkg_and_mng[0],
-                package_manager=args.pkg_and_mng[1]
-            )
-            is_pkg_valid = is_package_valid(package)
 
-        if args.pkg_and_mng and is_pkg_valid:
-            output = get_repository_score_from_raw_stats(args.repo, package, args.params)
-        else:
-            output = get_repository_score_from_raw_stats(args.repo, args.params)
-    elif args.l_file:
-        # TODO: Add package handling also here
-        if args.format != "csv":
-            logger.error(f"Only support for the format of csv, now is {args.format}")
+def override_params(override_params):
+    for override_param in override_params:
+        temp = override_param.split(':', 1)
+        param_name = temp[0]
+
+        try:
+            weight, threshold = [
+                float(i) for i in temp[1].split(':')
+            ]
+        except ValueError:
+            logger.error('Override parameter in bad format: ' + override_param)
             sys.exit(1)
 
-        output = get_repository_score_from_local_csv(args.l_file, args.params)
-    else:
-        raise Exception("Unknown data input type")
+        update_signals_weights_and_thresholds(param_name,weight, threshold)
 
+
+def update_signals_weights_and_thresholds(param_name, weight, threshold):
+    if param_name == 'created_since':
+        global CREATED_SINCE_WEIGHT, CREATED_SINCE_THRESHOLD
+        CREATED_SINCE_WEIGHT = weight
+        CREATED_SINCE_THRESHOLD = threshold
+    elif param_name == 'updated_since':
+        global UPDATED_SINCE_WEIGHT, UPDATED_SINCE_THRESHOLD
+        UPDATED_SINCE_WEIGHT = weight
+        UPDATED_SINCE_THRESHOLD = threshold
+    elif param_name == 'contributor_count':
+        global CONTRIBUTOR_COUNT_WEIGHT, CONTRIBUTOR_COUNT_THRESHOLD
+        CONTRIBUTOR_COUNT_WEIGHT = weight
+        CONTRIBUTOR_COUNT_THRESHOLD = threshold
+    elif param_name == 'org_count':
+        global ORG_COUNT_WEIGHT, ORG_COUNT_THRESHOLD
+        ORG_COUNT_WEIGHT = weight
+        ORG_COUNT_THRESHOLD = threshold
+    elif param_name == 'commit_frequency':
+        global COMMIT_FREQUENCY_WEIGHT, COMMIT_FREQUENCY_THRESHOLD
+        COMMIT_FREQUENCY_WEIGHT = weight
+        COMMIT_FREQUENCY_THRESHOLD = threshold
+    elif param_name == 'recent_releases_count':
+        global RECENT_RELEASES_WEIGHT, RECENT_RELEASES_THRESHOLD
+        RECENT_RELEASES_WEIGHT = weight
+        RECENT_RELEASES_THRESHOLD = threshold
+    elif param_name == 'updated_issues_count':
+        global UPDATED_ISSUES_WEIGHT, UPDATED_ISSUES_THRESHOLD
+        UPDATED_ISSUES_WEIGHT = weight
+        UPDATED_ISSUES_THRESHOLD = threshold
+    elif param_name == 'closed_issues_count':
+        global CLOSED_ISSUES_WEIGHT, CLOSED_ISSUES_THRESHOLD
+        CLOSED_ISSUES_WEIGHT = weight
+        CLOSED_ISSUES_THRESHOLD = threshold
+    elif param_name == 'comment_frequency':
+        global COMMENT_FREQUENCY_WEIGHT, COMMENT_FREQUENCY_THRESHOLD
+        COMMENT_FREQUENCY_WEIGHT = weight
+        COMMENT_FREQUENCY_THRESHOLD = threshold
+    elif param_name == 'dependents_count':
+        global DEPENDENTS_COUNT_WEIGHT, DEPENDENTS_COUNT_THRESHOLD
+        DEPENDENTS_COUNT_WEIGHT = weight
+        DEPENDENTS_COUNT_THRESHOLD = threshold
+    else:
+        raise Exception(
+            'Wrong format argument, unknown parameter: ' + param_name)
+
+
+def use_only(use_only_params):
+    signals_to_exclude = [
+        signal_to_exclude for signal_to_exclude in PARAMS if signal_to_exclude not in use_only_params
+    ]
+
+    for signal in signals_to_exclude:
+        update_signals_weights_and_thresholds(param_name=signal, weight=0, threshold=0)
+
+
+def export_data(output, args):
     if output is None:
         return
     if args.format == 'default':
@@ -842,8 +834,44 @@ def main():
         csv_writer.writeheader()
         csv_writer.writerows(output)
     else:
-        raise Exception(
-            'Wrong format argument, use one of default, csv or json!')
+        raise Exception('Wrong format argument, use one of default, csv or json!')
+
+
+def main():
+    initialize_logging_handlers()
+    args = parse_cmd_params()
+
+    if args.overrides:
+        override_params(args.overrides)
+    if args.use_only:
+        use_only(args.use_only)
+
+    if args.pkg_and_mng:
+        package = Package(package_name=args.pkg_and_mng[0].lower(), package_manager=args.pkg_and_mng[1].lower())
+        is_pkg_valid = package.is_package_valid()
+    else:
+        is_pkg_valid = False
+
+    if args.repo:
+        if args.pkg_and_mng and is_pkg_valid:
+            output = get_repository_score_from_raw_stats(repo_url=args.repo, package=package, params=args.params)
+        else:
+            output = get_repository_score_from_raw_stats(repo_url=args.repo, params=args.params)
+    elif args.l_file:
+        if args.format != "csv":
+            logger.error(f"Only support for the format of csv, now is {args.format}")
+            sys.exit(1)
+
+        # TODO: Add package handling also here
+        output = get_repository_score_from_local_csv(args.l_file, args.params)
+        if args.pkg_and_mng and is_pkg_valid:
+            output = get_repository_score_from_local_csv(file_path=args.l_file, package=package, params=args.params)
+        else:
+            output = get_repository_score_from_local_csv(file_path=args.l_file, params=args.params)
+    else:
+        raise Exception("Unknown data input type")
+
+    export_data(output, args)
 
 
 if __name__ == "__main__":
