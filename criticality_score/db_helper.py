@@ -4,8 +4,7 @@ import pandas as pd
 from neo4j import GraphDatabase
 
 
-# TODO: Investigate how to get that in configuration
-BASE_PATH = "C:\\DATA\\STUDIA\\Master\\P3\\ASE\\critical-projects-itu\\data\\processing\\"
+DEPS_DATA_DIR_BASE_PATH = "./data"
 
 
 class DependencyPagerankFetcher(ABC):
@@ -86,10 +85,10 @@ class CsvDependencyPagerankFetcher(DependencyPagerankFetcher):
     ]
 
     def __init__(self):
-        self._base_directory = BASE_PATH
+        self._base_directory = DEPS_DATA_DIR_BASE_PATH
 
     def _load_dataframe(self, package_manager):
-        path = os.path.join(self._base_directory, package_manager.lower(), f"nodes_{package_manager.lower()}.csv")
+        path = os.path.join(self._base_directory, f"nodes_{package_manager.lower()}.csv")
         df = pd.read_csv(filepath_or_buffer=path, usecols=["PKG_NAME", "PAGE_RANK"])
 
         return df.applymap(lambda s: s.lower() if type(s) == str else s)

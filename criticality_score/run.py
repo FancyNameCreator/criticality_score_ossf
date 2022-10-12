@@ -69,7 +69,6 @@ class Package:
 
     def is_package_valid(self):
         if not self._is_valid_package_name() or not self._is_valid_package_manager():
-            logger.warning("Invalid package name or package manager, doing default calculation")
             return False
         else:
             return True
@@ -498,24 +497,9 @@ def get_repository_stats(repo):
     return result_dict
 
 
-def get_repository_score(repo_stats, package_pagerank=None, additional_params=None):
+def get_repository_score(repo_stats, package=None, additional_params=None):
     """Return one repository's criticality score based on repo stats."""
-    # Validate and compute additional params first.
-    if additional_params is None:
-        additional_params = []
-    additional_params_total_weight = 0
-    additional_params_score = 0
-    for additional_param in additional_params:
-        try:
-            value, weight, max_threshold = [
-                float(i) for i in additional_param.split(':')
-            ]
-        except ValueError:
-            logger.error('Parameter value in bad format: ' + additional_param)
-            sys.exit(1)
-        additional_params_total_weight += weight
-        additional_params_score += get_param_score(value, max_threshold,
-                                                   weight)
+    additional_params_score, additional_params_total_weight = get_additional_params_score_and_weight(additional_params)
 
     total_weight = (CREATED_SINCE_WEIGHT + UPDATED_SINCE_WEIGHT +
                     CONTRIBUTOR_COUNT_WEIGHT + ORG_COUNT_WEIGHT +
@@ -544,20 +528,49 @@ def get_repository_score(repo_stats, package_pagerank=None, additional_params=No
                                                   COMMENT_FREQUENCY_THRESHOLD, COMMENT_FREQUENCY_WEIGHT)) +
                                  additional_params_score)
 
-    if package_pagerank is not None:
-        criticality_score = round((total_score_no_dependency + (
-            get_param_score(float(package_pagerank), DEPENDENTS_COUNT_THRESHOLD,
-                            DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
-    else:
+    if package is None:
         criticality_score = round(
             (total_score_no_dependency + (
                 get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
                                 DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+    else:
+        package_pagerank = package.get_package_pagerank()
+
+        if package_pagerank is not None:
+            criticality_score = round((total_score_no_dependency + (
+                get_param_score(float(package_pagerank), DEPENDENTS_COUNT_THRESHOLD,
+                                DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+        else:
+            logger.warning("Pagerank not available, doing default calculation")
+            criticality_score = round(
+                (total_score_no_dependency + (
+                    get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
+                                    DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
 
     # Make sure score between 0 (least-critical) and 1 (most-critical).
     criticality_score = max(min(criticality_score, 1), 0)
 
     return criticality_score
+
+
+def get_additional_params_score_and_weight(additional_params):
+    # Validate and compute additional params first.
+    if additional_params is None:
+        additional_params = []
+    additional_params_total_weight = 0
+    additional_params_score = 0
+    for additional_param in additional_params:
+        try:
+            value, weight, max_threshold = [
+                float(i) for i in additional_param.split(':')
+            ]
+        except ValueError:
+            logger.error('Parameter value in bad format: ' + additional_param)
+            sys.exit(1)
+        additional_params_total_weight += weight
+        additional_params_score += get_param_score(value, max_threshold, weight)
+
+    return additional_params_score, additional_params_total_weight
 
 
 def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
@@ -568,16 +581,11 @@ def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
         return
 
     repo_stats = get_repository_stats(repo)
-
-    if package is not None:
-        package_pagerank = package.get_package_pagerank()
-        if package_pagerank:
-            repo_stats["criticality_score"] = get_repository_score(repo_stats, package_pagerank, params)
-        else:
-            logger.warning("Pagerank not available, doing default calculation")
-            repo_stats["criticality_score"] = get_repository_score(repo_stats, additional_params=params)
-    else:
-        repo_stats["criticality_score"] = get_repository_score(repo_stats, additional_params=params)
+    repo_stats["criticality_score"] = get_repository_score(
+        repo_stats=repo_stats,
+        package=package,
+        additional_params=params
+    )
 
     return repo_stats
 
@@ -603,7 +611,7 @@ def get_repository_score_from_local_csv(file_path, package=None, params=None):
             for key, weight, max_threshold in additional_params:
                 calc_params.append(f"{row[key]}:{weight}:{max_threshold}")
 
-            row["criticality_score"] = get_repository_score(row, calc_params)
+            row["criticality_score"] = get_repository_score(row, package, calc_params)
             output.append(row)
 
     return output
@@ -734,7 +742,7 @@ def parse_cmd_params():
     parser.add_argument(
         '--use_only',
         nargs='+',
-        choices=PARAMS,
+        choices=SIGNALS,
         help='Allows to only use certain signals for criticality calculation',
         required=False)
     parser.add_argument(
@@ -761,7 +769,7 @@ def override_params(override_params):
             logger.error('Override parameter in bad format: ' + override_param)
             sys.exit(1)
 
-        update_signals_weights_and_thresholds(param_name,weight, threshold)
+        update_signals_weights_and_thresholds(param_name, weight, threshold)
 
 
 def update_signals_weights_and_thresholds(param_name, weight, threshold):
@@ -806,13 +814,12 @@ def update_signals_weights_and_thresholds(param_name, weight, threshold):
         DEPENDENTS_COUNT_WEIGHT = weight
         DEPENDENTS_COUNT_THRESHOLD = threshold
     else:
-        raise Exception(
-            'Wrong format argument, unknown parameter: ' + param_name)
+        raise Exception('Wrong format argument, unknown parameter: ' + param_name)
 
 
 def use_only(use_only_params):
     signals_to_exclude = [
-        signal_to_exclude for signal_to_exclude in PARAMS if signal_to_exclude not in use_only_params
+        signal_to_exclude for signal_to_exclude in SIGNALS if signal_to_exclude not in use_only_params
     ]
 
     for signal in signals_to_exclude:
@@ -846,28 +853,20 @@ def main():
     if args.use_only:
         use_only(args.use_only)
 
+    package = None
     if args.pkg_and_mng:
         package = Package(package_name=args.pkg_and_mng[0].lower(), package_manager=args.pkg_and_mng[1].lower())
-        is_pkg_valid = package.is_package_valid()
-    else:
-        is_pkg_valid = False
+        if not package.is_package_valid():
+            logger.warning("Invalid package name or package manager, doing default calculation")
+            package = None
 
     if args.repo:
-        if args.pkg_and_mng and is_pkg_valid:
-            output = get_repository_score_from_raw_stats(repo_url=args.repo, package=package, params=args.params)
-        else:
-            output = get_repository_score_from_raw_stats(repo_url=args.repo, params=args.params)
+        output = get_repository_score_from_raw_stats(repo_url=args.repo, package=package, params=args.params)
     elif args.l_file:
         if args.format != "csv":
             logger.error(f"Only support for the format of csv, now is {args.format}")
             sys.exit(1)
-
-        # TODO: Add package handling also here
-        output = get_repository_score_from_local_csv(args.l_file, args.params)
-        if args.pkg_and_mng and is_pkg_valid:
-            output = get_repository_score_from_local_csv(file_path=args.l_file, package=package, params=args.params)
-        else:
-            output = get_repository_score_from_local_csv(file_path=args.l_file, params=args.params)
+        output = get_repository_score_from_local_csv(file_path=args.l_file, package=package, params=args.params)
     else:
         raise Exception("Unknown data input type")
 

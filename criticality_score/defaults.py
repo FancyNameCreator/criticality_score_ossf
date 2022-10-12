@@ -46,3 +46,18 @@ FAIL_RETRIES = 7
 
 # Regex to match dependents count.
 DEPENDENTS_REGEX = re.compile(b'.*[^0-9,]([0-9,]+).*commit result', re.DOTALL)
+
+
+# Available signals
+SIGNALS = [
+    'created_since',
+    'updated_since',
+    'contributor_count',
+    'org_count',
+    'commit_frequency',
+    'recent_releases_count',
+    'updated_issues_count',
+    'closed_issues_count',
+    'comment_frequency',
+    'dependents_count'
+]
