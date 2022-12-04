@@ -35,6 +35,7 @@ setuptools.setup(
     install_requires=[
         'PyGithub>=1.53',
         'python-gitlab>=2.5.0',
+        'truckfactor'
     ],
     entry_points={
         'console_scripts': ['criticality_score=criticality_score.run:main'],

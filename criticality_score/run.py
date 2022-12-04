@@ -29,9 +29,9 @@ import github
 import gitlab
 import requests
 
+from truckfactor.compute import main as tf_compute
+from db_helper import PageRankNotAvailableException, CsvDependencyPagerankFetcher
 from defaults import *  # pylint: disable=wildcard-import
-from db_helper import DependencyPagerankFetcher, PageRankNotAvailableException, Neo4jDependencyPagerankFetcher, \
-    CsvDependencyPagerankFetcher
 
 logger = logging.getLogger()
 
@@ -41,7 +41,7 @@ _CACHED_GITHUB_TOKEN_OBJ = None
 PARAMS = [
     'description', 'created_since', 'updated_since', 'contributor_count', 'watchers_count', 'org_count',
     'commit_frequency', 'recent_releases_count', 'updated_issues_count',
-    'closed_issues_count', 'comment_frequency', 'dependents_count'
+    'open_issues_count', 'comment_frequency', 'dependents_count'
 ]
 
 
@@ -132,7 +132,7 @@ class Repository:
         raise NotImplementedError
 
     @property
-    def closed_issues_count(self):
+    def open_issues_count(self):
         raise NotImplementedError
 
     @property
@@ -153,8 +153,7 @@ class Repository:
         match = None
         parsed_url = urllib.parse.urlparse(self.url)
         repo_name = parsed_url.path.strip('/')
-        dependents_url = (
-            f'https://github.com/search?q="{repo_name}"&type=commits')
+        dependents_url = f'https://github.com/search?q="{repo_name}"&type=commits'
         for i in range(FAIL_RETRIES):
             result = self._request_url_with_auth_headers(dependents_url)
             if result.status_code == 200:
@@ -253,13 +252,20 @@ class GitHubRepository(Repository):
         difference = datetime.datetime.utcnow() - last_commit_time
         return round(difference.days / 30)
 
-    @property
-    def contributor_count(self):
+    def _contributor_count(self):
         try:
             return self._repo.get_contributors(anon='true').totalCount
         except Exception:
             # Very large number of contributors, i.e. 5000+. Cap at 5,000.
             return 5000
+
+    @property
+    def contributor_count(self):
+        try:
+            truckfactor, _ = tf_compute(self._repo.web_url, is_url=True)
+        except Exception as e:
+            # default to old calculation in case of exception
+            return self._contributor_count()
 
     @property
     def watchers_count(self):
@@ -323,11 +329,9 @@ class GitHubRepository(Repository):
                                      since=issues_since_time).totalCount
 
     @property
-    def closed_issues_count(self):
-        issues_since_time = datetime.datetime.utcnow() - datetime.timedelta(
-            days=ISSUE_LOOKBACK_DAYS)
-        return self._repo.get_issues(state='closed',
-                                     since=issues_since_time).totalCount
+    def open_issues_count(self):
+        issues_since_time = datetime.datetime.utcnow() - datetime.timedelta(days=ISSUE_LOOKBACK_DAYS)
+        return self._repo.get_issues(state='open', since=issues_since_time).totalCount
 
     @property
     def comment_frequency(self):
@@ -392,7 +396,11 @@ class GitLabRepository(Repository):
 
     @property
     def contributor_count(self):
-        return len(self._repo.repository_contributors(all=True))
+        try:
+            truckfactor, _ = tf_compute(self._repo.web_url, is_url=True)
+        except Exception as e:
+            # default to old calculation in case of exception
+            return len(self._repo.repository_contributors(all=True))
 
     @property
     def org_count(self):
@@ -435,12 +443,11 @@ class GitLabRepository(Repository):
         return self._repo.issuesstatistics.get(
             updated_after=issues_since_time).statistics['counts']['all']
 
+    #TODO: FIX ME !!!
     @property
-    def closed_issues_count(self):
-        issues_since_time = datetime.datetime.utcnow() - datetime.timedelta(
-            days=ISSUE_LOOKBACK_DAYS)
-        return self._repo.issuesstatistics.get(
-            updated_after=issues_since_time).statistics['counts']['closed']
+    def open_issues_count(self):
+        issues_since_time = datetime.datetime.utcnow() - datetime.timedelta(days=ISSUE_LOOKBACK_DAYS)
+        return self._repo.issuesstatistics.get(updated_after=issues_since_time).statistics['counts']['open']
 
     @property
     def comment_frequency(self):
@@ -494,14 +501,14 @@ def get_repository_stats(repo):
     return result_dict
 
 
-def get_repository_score(repo_stats, package=None, additional_params=None):
+def enrich_repo_stats_with_criticality_score(repo_stats, package=None, additional_params=None):
     """Return one repository's criticality score based on repo stats."""
     additional_params_score, additional_params_total_weight = get_additional_params_score_and_weight(additional_params)
 
     total_weight = (CREATED_SINCE_WEIGHT + UPDATED_SINCE_WEIGHT +
                     CONTRIBUTOR_COUNT_WEIGHT + ORG_COUNT_WEIGHT +
                     COMMIT_FREQUENCY_WEIGHT + RECENT_RELEASES_WEIGHT +
-                    CLOSED_ISSUES_WEIGHT + UPDATED_ISSUES_WEIGHT +
+                    OPEN_ISSUES_WEIGHT + UPDATED_ISSUES_WEIGHT +
                     COMMENT_FREQUENCY_WEIGHT + DEPENDENTS_COUNT_WEIGHT +
                     additional_params_total_weight)
 
@@ -517,8 +524,8 @@ def get_repository_score(repo_stats, package=None, additional_params=None):
                                                   COMMIT_FREQUENCY_THRESHOLD, COMMIT_FREQUENCY_WEIGHT)) +
                                  (get_param_score(float(repo_stats['recent_releases_count']),
                                                   RECENT_RELEASES_THRESHOLD, RECENT_RELEASES_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['closed_issues_count']),
-                                                  CLOSED_ISSUES_THRESHOLD, CLOSED_ISSUES_WEIGHT)) +
+                                 (get_param_score(float(repo_stats['open_issues_count']),
+                                                  OPEN_ISSUES_THRESHOLD, OPEN_ISSUES_WEIGHT)) +
                                  (get_param_score(float(repo_stats['updated_issues_count']),
                                                   UPDATED_ISSUES_THRESHOLD, UPDATED_ISSUES_WEIGHT)) +
                                  (get_param_score(float(repo_stats['comment_frequency']),
@@ -530,24 +537,28 @@ def get_repository_score(repo_stats, package=None, additional_params=None):
             (total_score_no_dependency + (
                 get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
                                 DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+        repo_stats["calculation_type"] = "default"
     else:
         package_pagerank = package.get_package_pagerank()
 
         if package_pagerank is not None:
             criticality_score = round((total_score_no_dependency + (
-                get_param_score(float(package_pagerank), DEPENDENTS_COUNT_THRESHOLD,
+                get_param_score(float(package_pagerank), DEPENDENTS_PAGERANK_THRESHOLD,
                                 DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+            repo_stats["calculation_type"] = "PageRank"
+            repo_stats["package_pagerank"] = package_pagerank
         else:
             logger.warning("Pagerank not available, doing default calculation")
             criticality_score = round(
                 (total_score_no_dependency + (
                     get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
                                     DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
+            repo_stats["calculation_type"] = "default"
 
     # Make sure score between 0 (least-critical) and 1 (most-critical).
-    criticality_score = max(min(criticality_score, 1), 0)
+    repo_stats["criticality_score"] = max(min(criticality_score, 1), 0)
 
-    return criticality_score
+    return repo_stats
 
 
 def get_additional_params_score_and_weight(additional_params):
@@ -578,13 +589,13 @@ def get_repository_score_from_raw_stats(repo_url, package=None, params=None):
         return
 
     repo_stats = get_repository_stats(repo)
-    repo_stats["criticality_score"] = get_repository_score(
+    repo_stats_with_criticality_score = enrich_repo_stats_with_criticality_score(
         repo_stats=repo_stats,
         package=package,
         additional_params=params
     )
 
-    return repo_stats
+    return repo_stats_with_criticality_score
 
 
 def get_repository_score_from_local_csv(file_path, package=None, params=None):
@@ -599,7 +610,7 @@ def get_repository_score_from_local_csv(file_path, package=None, params=None):
             sys.exit(1)
 
     output = []
-    with open(file_path, "r") as fd:
+    with open(file_path, "r", encoding="utf-8") as fd:
         input_data = csv.DictReader(fd, delimiter=',')
         for row in input_data:
             logger.debug(row)
@@ -608,7 +619,7 @@ def get_repository_score_from_local_csv(file_path, package=None, params=None):
             for key, weight, max_threshold in additional_params:
                 calc_params.append(f"{row[key]}:{weight}:{max_threshold}")
 
-            row["criticality_score"] = get_repository_score(row, package, calc_params)
+            row["criticality_score"] = enrich_repo_stats_with_criticality_score(row, package, calc_params)
             output.append(row)
 
     return output
@@ -798,10 +809,10 @@ def update_signals_weights_and_thresholds(param_name, weight, threshold):
         global UPDATED_ISSUES_WEIGHT, UPDATED_ISSUES_THRESHOLD
         UPDATED_ISSUES_WEIGHT = weight
         UPDATED_ISSUES_THRESHOLD = threshold
-    elif param_name == 'closed_issues_count':
-        global CLOSED_ISSUES_WEIGHT, CLOSED_ISSUES_THRESHOLD
-        CLOSED_ISSUES_WEIGHT = weight
-        CLOSED_ISSUES_THRESHOLD = threshold
+    elif param_name == 'open_issues_count':
+        global OPEN_ISSUES_WEIGHT, OPEN_ISSUES_THRESHOLD
+        OPEN_ISSUES_WEIGHT = weight
+        OPEN_ISSUES_THRESHOLD = threshold
     elif param_name == 'comment_frequency':
         global COMMENT_FREQUENCY_WEIGHT, COMMENT_FREQUENCY_THRESHOLD
         COMMENT_FREQUENCY_WEIGHT = weight
@@ -830,7 +841,8 @@ def export_data(output, args):
         for key, value in output.items():
             logger.info(f'{key}: {value}')
     elif args.format == 'json':
-        logger.info(json.dumps(output, indent=4))
+        # logger.info(json.dumps(output, indent=4))
+        json.dump(output, sys.stdout, indent=4)
     elif args.format == 'csv':
         if args.repo:
             output = [output]
@@ -842,6 +854,8 @@ def export_data(output, args):
 
 
 def main():
+    # TODO: figure out pagerank treshold handling (make a pagerank treshold not overwrittable ?)
+
     initialize_logging_handlers()
     args = parse_cmd_params()
 

@@ -1,10 +1,10 @@
 import os
 from abc import ABC, abstractmethod
 import pandas as pd
-from neo4j import GraphDatabase
+# from neo4j import GraphDatabase
 
 
-DEPS_DATA_DIR_BASE_PATH = "./data"
+DEPS_DATA_DIR_BASE_PATH = "C:\\DATA\\STUDIA\\Master\\P3\\ASE\\criticality_score_ossf\\criticality_score\\data"
 
 
 class DependencyPagerankFetcher(ABC):
@@ -21,67 +21,67 @@ class DependencyPagerankFetcher(ABC):
         pass
 
 
-class Neo4jDependencyPagerankFetcher(DependencyPagerankFetcher):
-    def __init__(self):
-        self._uri = "neo4j://localhost:7687"
-        self._driver = GraphDatabase.driver(self._uri, auth=("neo4j", "password"))
-
-    @staticmethod
-    def _fetch_pagerank(tx, package_name, package_manager):
-        query = f"""MATCH (n:{package_manager})
-        WHERE n.PKG_NAME = "{package_name}"
-        RETURN n.PAGE_RANK;"""
-        result = tx.run(query)
-
-        return result.value()[0]
-
-    @staticmethod
-    def _fetch_all_packages(tx, package_manager):
-        query = f"""MATCH (n:{package_manager})
-            RETURN n.PKG_NAME;"""
-        result = tx.run(query)
-
-        return result.value()[0]
-
-    @staticmethod
-    def _fetch_all_package_managers(tx):
-        query = f"""MATCH (n) RETURN distinct labels(n);"""
-        result = tx.run(query)
-
-        return result.value()[0]
-
-    def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
-        with self._driver.session() as session:
-            rank = session.execute_read(self._fetch_pagerank, package_name, package_manager)
-            if rank is None:
-                raise PageRankNotAvailableException("Pagerank not available for this package")
-            else:
-                return rank
-
-    def get_all_packages(self, package_manager):
-        # TODO: Fix me
-        pass
-
-    def get_all_package_managers(self):
-        # TODO: Fix me
-        pass
+# class Neo4jDependencyPagerankFetcher(DependencyPagerankFetcher):
+#     def __init__(self):
+#         self._uri = "neo4j://localhost:7687"
+#         self._driver = GraphDatabase.driver(self._uri, auth=("neo4j", "password"))
+#
+#     @staticmethod
+#     def _fetch_pagerank(tx, package_name, package_manager):
+#         query = f"""MATCH (n:{package_manager})
+#         WHERE n.PKG_NAME = "{package_name}"
+#         RETURN n.PAGE_RANK;"""
+#         result = tx.run(query)
+#
+#         return result.value()[0]
+#
+#     @staticmethod
+#     def _fetch_all_packages(tx, package_manager):
+#         query = f"""MATCH (n:{package_manager})
+#             RETURN n.PKG_NAME;"""
+#         result = tx.run(query)
+#
+#         return result.value()[0]
+#
+#     @staticmethod
+#     def _fetch_all_package_managers(tx):
+#         query = f"""MATCH (n) RETURN distinct labels(n);"""
+#         result = tx.run(query)
+#
+#         return result.value()[0]
+#
+#     def try_get_dependency_pagerank_for_package(self, package_name, package_manager):
+#         with self._driver.session() as session:
+#             rank = session.execute_read(self._fetch_pagerank, package_name, package_manager)
+#             if rank is None:
+#                 raise PageRankNotAvailableException("Pagerank not available for this package")
+#             else:
+#                 return rank
+#
+#     def get_all_packages(self, package_manager):
+#         # TODO: Fix me
+#         pass
+#
+#     def get_all_package_managers(self):
+#         # TODO: Fix me
+#         pass
 
 
 class CsvDependencyPagerankFetcher(DependencyPagerankFetcher):
     PKG_MANAGERS_LIST = [
         "alire",
-        # "cargo",
-        # "chromebrew",
-        # "clojars",
+        "cargo",
+        "chromebrew",
+        "clojars",
         "conan",
-        # "fpm",
-        # "homebrew",
-        # "luarocks",
-        # "nimble",
-        # "npm",
+        "fpm",
+        "homebrew",
+        "luarocks",
+        "nimble",
+        "npm",
         # "ports",
-        # "rubygems",
-        # "vcpkg"
+        "rubygems",
+        "vcpkg"
     ]
 
     def __init__(self):
