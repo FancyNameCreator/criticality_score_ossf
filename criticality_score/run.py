@@ -519,22 +519,22 @@ def enrich_repo_stats_with_criticality_score(repo_stats, package=None, additiona
 
     total_score_no_dependency = ((get_param_score(float(repo_stats['created_since']),
                                                   CREATED_SINCE_THRESHOLD, CREATED_SINCE_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['updated_since']),
-                                                  UPDATED_SINCE_THRESHOLD, UPDATED_SINCE_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['updated_since']),
+                                 #                  UPDATED_SINCE_THRESHOLD, UPDATED_SINCE_WEIGHT)) +
                                  (get_param_score(float(repo_stats['contributor_count']),
                                                   CONTRIBUTOR_COUNT_THRESHOLD, CONTRIBUTOR_COUNT_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['org_count']),
-                                                  ORG_COUNT_THRESHOLD, ORG_COUNT_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['commit_frequency']),
-                                                  COMMIT_FREQUENCY_THRESHOLD, COMMIT_FREQUENCY_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['recent_releases_count']),
-                                                  RECENT_RELEASES_THRESHOLD, RECENT_RELEASES_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['org_count']),
+                                 #                  ORG_COUNT_THRESHOLD, ORG_COUNT_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['commit_frequency']),
+                                 #                  COMMIT_FREQUENCY_THRESHOLD, COMMIT_FREQUENCY_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['recent_releases_count']),
+                                 #                  RECENT_RELEASES_THRESHOLD, RECENT_RELEASES_WEIGHT)) +
                                  (get_param_score(float(repo_stats['open_issues_count']),
                                                   OPEN_ISSUES_THRESHOLD, OPEN_ISSUES_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['updated_issues_count']),
-                                                  UPDATED_ISSUES_THRESHOLD, UPDATED_ISSUES_WEIGHT)) +
-                                 (get_param_score(float(repo_stats['comment_frequency']),
-                                                  COMMENT_FREQUENCY_THRESHOLD, COMMENT_FREQUENCY_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['updated_issues_count']),
+                                 #                  UPDATED_ISSUES_THRESHOLD, UPDATED_ISSUES_WEIGHT)) +
+                                 # (get_param_score(float(repo_stats['comment_frequency']),
+                                 #                  COMMENT_FREQUENCY_THRESHOLD, COMMENT_FREQUENCY_WEIGHT)) +
                                  additional_params_score)
 
     if package is None:
