@@ -38,10 +38,14 @@ logger = logging.getLogger()
 _CACHED_GITHUB_TOKEN = None
 _CACHED_GITHUB_TOKEN_OBJ = None
 
-PARAMS = [
-    'description', 'created_since', 'updated_since', 'contributor_count', 'watchers_count', 'org_count',
-    'commit_frequency', 'recent_releases_count', 'updated_issues_count',
-    'open_issues_count', 'comment_frequency', 'dependents_count'
+# PARAMS = [
+#     'description', 'created_since', 'updated_since', 'contributor_count', 'watchers_count', 'org_count',
+#     'commit_frequency', 'recent_releases_count', 'updated_issues_count',
+#     'open_issues_count', 'comment_frequency', 'dependents_count'
+# ]
+
+PARAMS_GEN = [
+    'created_since', 'contributor_count', 'open_issues_count', 'dependents_count'
 ]
 
 
@@ -150,19 +154,21 @@ class Repository:
     def dependents_count(self):
         # TODO: Take package manager dependency trees into account. If we decide
         # to replace this, then find a solution for C/C++ as well.
-        match = None
-        parsed_url = urllib.parse.urlparse(self.url)
-        repo_name = parsed_url.path.strip('/')
-        dependents_url = f'https://github.com/search?q="{repo_name}"&type=commits'
-        for i in range(FAIL_RETRIES):
-            result = self._request_url_with_auth_headers(dependents_url)
-            if result.status_code == 200:
-                match = DEPENDENTS_REGEX.match(result.content)
-                break
-            time.sleep(2 ** i)
-        if not match:
-            return 0
-        return int(match.group(1).replace(b',', b''))
+
+        return 0
+        # match = None
+        # parsed_url = urllib.parse.urlparse(self.url)
+        # repo_name = parsed_url.path.strip('/')
+        # dependents_url = f'https://github.com/search?q="{repo_name}"&type=commits'
+        # for i in range(FAIL_RETRIES):
+        #     result = self._request_url_with_auth_headers(dependents_url)
+        #     if result.status_code == 200:
+        #         match = DEPENDENTS_REGEX.match(result.content)
+        #         break
+        #     time.sleep(2 ** i)
+        # if not match:
+        #     return 0
+        # return int(match.group(1).replace(b',', b''))
 
 
 class GitHubRepository(Repository):
@@ -481,9 +487,8 @@ def get_repository_stats(repo):
 
     threads = []
     return_dict = {}
-    for param in PARAMS:
-        thread = threading.Thread(target=_worker,
-                                  args=(repo, param, return_dict))
+    for param in PARAMS_GEN:
+        thread = threading.Thread(target=_worker, args=(repo, param, return_dict))
         thread.start()
         threads.append(thread)
     for thread in threads:
@@ -495,7 +500,7 @@ def get_repository_stats(repo):
         'url': repo.url,
         'language': repo.language,
     }
-    for param in PARAMS:
+    for param in PARAMS_GEN:
         result_dict[param] = return_dict[param]
 
     return result_dict
@@ -538,6 +543,8 @@ def enrich_repo_stats_with_criticality_score(repo_stats, package=None, additiona
                 get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
                                 DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
         repo_stats["calculation_type"] = "default"
+
+        raise Exception("PageRank not available")
     else:
         package_pagerank = package.get_package_pagerank()
 
@@ -554,6 +561,8 @@ def enrich_repo_stats_with_criticality_score(repo_stats, package=None, additiona
                     get_param_score(float(repo_stats['dependents_count']), DEPENDENTS_COUNT_THRESHOLD,
                                     DEPENDENTS_COUNT_WEIGHT))) / total_weight, 5)
             repo_stats["calculation_type"] = "default"
+
+            raise Exception("PageRank not available")
 
     # Make sure score between 0 (least-critical) and 1 (most-critical).
     repo_stats["criticality_score"] = max(min(criticality_score, 1), 0)

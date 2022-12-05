@@ -17,7 +17,7 @@ import re
 # Weights for various parameters.
 CREATED_SINCE_WEIGHT = 1            # selected
 UPDATED_SINCE_WEIGHT = -1
-CONTRIBUTOR_COUNT_WEIGHT = -3       # selected
+CONTRIBUTOR_COUNT_WEIGHT = -1       # selected
 ORG_COUNT_WEIGHT = 1
 COMMIT_FREQUENCY_WEIGHT = 1
 RECENT_RELEASES_WEIGHT = 0.5
